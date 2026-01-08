@@ -198,7 +198,7 @@ export type Database = {
           school: string
           sponsor?: string | null
           status?: Database["public"]["Enums"]["submission_status"]
-          submission_id: string
+          submission_id?: string
           target_venue?: string | null
           title: string
           updated_at?: string
