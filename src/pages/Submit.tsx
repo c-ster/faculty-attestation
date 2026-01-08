@@ -8,13 +8,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
-import { FileText, Upload, CheckCircle, AlertTriangle, ChevronLeft, ChevronRight, Send } from "lucide-react";
+import { FileText, Upload, CheckCircle, AlertTriangle, ChevronLeft, ChevronRight, Send, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 const departments = [
   "Computer Science",
-  "Electrical Engineering", 
+  "Electrical Engineering",
   "Mechanical Engineering",
   "Operations Research",
   "Defense Analysis",
@@ -25,6 +27,13 @@ const departments = [
   "Systems Engineering",
 ];
 
+const schools = [
+  "Graduate School of Engineering and Applied Sciences",
+  "Graduate School of Operational and Information Sciences",
+  "Graduate School of Defense Management",
+  "School of International Graduate Studies",
+];
+
 const certificationQuestions = [
   {
     id: "classification",
@@ -32,6 +41,7 @@ const certificationQuestions = [
     question: "Does this manuscript contain any classified information?",
     helpText: "This includes information marked or unmarked that requires protection in the interest of national security.",
     riskIndicator: true,
+    dbField: "contains_classified",
   },
   {
     id: "operational",
@@ -39,6 +49,7 @@ const certificationQuestions = [
     question: "Does this manuscript contain operationally sensitive information?",
     helpText: "Information that could reveal tactics, techniques, or procedures (TTPs) or operational capabilities.",
     riskIndicator: true,
+    dbField: "contains_operational_info",
   },
   {
     id: "export_control",
@@ -46,6 +57,7 @@ const certificationQuestions = [
     question: "Does this manuscript contain ITAR or EAR controlled technical data?",
     helpText: "Technical data subject to International Traffic in Arms Regulations or Export Administration Regulations.",
     riskIndicator: true,
+    dbField: "contains_export_controlled",
   },
   {
     id: "foreign_involvement",
@@ -53,6 +65,7 @@ const certificationQuestions = [
     question: "Does this manuscript involve foreign nationals or international collaboration?",
     helpText: "Research conducted with or sponsored by foreign governments, institutions, or nationals.",
     riskIndicator: false,
+    dbField: "has_foreign_involvement",
   },
   {
     id: "sponsor_restrictions",
@@ -60,6 +73,7 @@ const certificationQuestions = [
     question: "Does the funding sponsor require pre-publication review?",
     helpText: "Some sponsors mandate review before public release. Check your grant or contract terms.",
     riskIndicator: false,
+    dbField: "has_sponsor_restrictions",
   },
   {
     id: "prior_release",
@@ -67,53 +81,153 @@ const certificationQuestions = [
     question: "Has any portion of this manuscript been previously approved for public release?",
     helpText: "Include prior conference presentations, working papers, or other approved publications.",
     riskIndicator: false,
+    dbField: "has_prior_release",
   },
 ];
 
 const Submit = () => {
   const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: "",
     authors: "",
     department: "",
+    school: "",
     abstract: "",
     sponsor: "",
+    fundingSource: "",
     venue: "",
     file: null as File | null,
     certification: {} as Record<string, string>,
   });
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { user, profile } = useAuth();
 
   const totalSteps = 3;
   const progress = (step / totalSteps) * 100;
 
   const handleCertificationChange = (questionId: string, value: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      certification: { ...prev.certification, [questionId]: value }
+      certification: { ...prev.certification, [questionId]: value },
     }));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setFormData(prev => ({ ...prev, file }));
+      setFormData((prev) => ({ ...prev, file }));
     }
   };
 
-  const handleSubmit = () => {
-    const submissionId = `NPS-${Date.now().toString(36).toUpperCase()}`;
-    toast({
-      title: "Submission Successful!",
-      description: `Your submission ID is ${submissionId}. You will receive a confirmation email.`,
-    });
-    navigate("/submissions");
+  const handleSubmit = async () => {
+    if (!user) return;
+
+    setSubmitting(true);
+
+    try {
+      // Calculate risk flags
+      const riskFlags = Object.entries(formData.certification)
+        .filter(([key, value]) => value === "yes" && certificationQuestions.find((q) => q.id === key)?.riskIndicator)
+        .map(([key]) => key);
+
+      // Parse authors into array
+      const authorsArray = formData.authors.split(";").map((a) => a.trim()).filter(Boolean);
+
+      // Upload manuscript if provided
+      let manuscriptPath = null;
+      let manuscriptFilename = null;
+
+      if (formData.file) {
+        const fileExt = formData.file.name.split(".").pop();
+        const filePath = `${user.id}/${Date.now()}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("manuscripts")
+          .upload(filePath, formData.file);
+
+        if (uploadError) {
+          throw new Error(`File upload failed: ${uploadError.message}`);
+        }
+
+        manuscriptPath = filePath;
+        manuscriptFilename = formData.file.name;
+      }
+
+      // Create submission
+      const { data: submission, error: submissionError } = await supabase
+        .from("submissions")
+        .insert({
+          user_id: user.id,
+          title: formData.title,
+          authors: authorsArray,
+          department: formData.department,
+          school: formData.school,
+          abstract: formData.abstract,
+          sponsor: formData.sponsor || null,
+          funding_source: formData.fundingSource || null,
+          target_venue: formData.venue || null,
+          manuscript_path: manuscriptPath,
+          manuscript_filename: manuscriptFilename,
+          risk_flags: riskFlags,
+        })
+        .select()
+        .single();
+
+      if (submissionError) {
+        throw new Error(`Submission failed: ${submissionError.message}`);
+      }
+
+      // Create self-certification record
+      const { error: certError } = await supabase.from("self_certifications").insert({
+        submission_id: submission.id,
+        contains_classified: formData.certification.classification === "yes",
+        contains_operational_info: formData.certification.operational === "yes",
+        contains_export_controlled: formData.certification.export_control === "yes",
+        has_foreign_involvement: formData.certification.foreign_involvement === "yes",
+        has_sponsor_restrictions: formData.certification.sponsor_restrictions === "yes",
+        has_prior_release: formData.certification.prior_release === "yes",
+        attested_accurate: true,
+        attested_at: new Date().toISOString(),
+      });
+
+      if (certError) {
+        throw new Error(`Certification failed: ${certError.message}`);
+      }
+
+      // Create attestation log
+      await supabase.from("attestation_logs").insert({
+        submission_id: submission.id,
+        user_id: user.id,
+        action: "submitted",
+        new_value: JSON.stringify({
+          title: formData.title,
+          certification: formData.certification,
+        }),
+      });
+
+      toast({
+        title: "Submission Successful!",
+        description: `Your submission ID is ${submission.submission_id}. You will receive a confirmation email.`,
+      });
+
+      navigate("/submissions");
+    } catch (error) {
+      console.error("Submission error:", error);
+      toast({
+        title: "Submission Failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const canProceed = () => {
     if (step === 1) {
-      return formData.title && formData.authors && formData.department && formData.abstract;
+      return formData.title && formData.authors && formData.department && formData.school && formData.abstract;
     }
     if (step === 2) {
       return Object.keys(formData.certification).length === certificationQuestions.length;
@@ -122,7 +236,7 @@ const Submit = () => {
   };
 
   const riskCount = Object.entries(formData.certification).filter(
-    ([key, value]) => value === "yes" && certificationQuestions.find(q => q.id === key)?.riskIndicator
+    ([key, value]) => value === "yes" && certificationQuestions.find((q) => q.id === key)?.riskIndicator
   ).length;
 
   return (
@@ -131,7 +245,9 @@ const Submit = () => {
         {/* Progress Bar */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-foreground">Step {step} of {totalSteps}</span>
+            <span className="text-sm font-medium text-foreground">
+              Step {step} of {totalSteps}
+            </span>
             <span className="text-sm text-muted-foreground">
               {step === 1 && "Manuscript Details"}
               {step === 2 && "Self-Certification"}
@@ -149,9 +265,7 @@ const Submit = () => {
                 <FileText className="h-5 w-5 text-primary" />
                 Manuscript Details
               </CardTitle>
-              <CardDescription>
-                Provide information about your manuscript and submission
-              </CardDescription>
+              <CardDescription>Provide information about your manuscript and submission</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
@@ -160,7 +274,7 @@ const Submit = () => {
                   id="title"
                   placeholder="Enter the full title of your manuscript"
                   value={formData.title}
-                  onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
                 />
               </div>
 
@@ -170,35 +284,68 @@ const Submit = () => {
                   id="authors"
                   placeholder="List all authors (e.g., Smith, J.; Jones, A.)"
                   value={formData.authors}
-                  onChange={(e) => setFormData(prev => ({ ...prev, authors: e.target.value }))}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, authors: e.target.value }))}
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="department">Department / School *</Label>
+                  <Label htmlFor="school">School *</Label>
                   <Select
-                    value={formData.department}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, department: value }))}
+                    value={formData.school}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, school: value }))}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
+                      <SelectValue placeholder="Select school" />
                     </SelectTrigger>
                     <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                      {schools.map((school) => (
+                        <SelectItem key={school} value={school}>
+                          {school}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="sponsor">Sponsor / Funding Source</Label>
+                  <Label htmlFor="department">Department *</Label>
+                  <Select
+                    value={formData.department}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, department: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept} value={dept}>
+                          {dept}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="sponsor">Sponsor</Label>
                   <Input
                     id="sponsor"
                     placeholder="e.g., ONR, DARPA, NSF"
                     value={formData.sponsor}
-                    onChange={(e) => setFormData(prev => ({ ...prev, sponsor: e.target.value }))}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, sponsor: e.target.value }))}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="fundingSource">Funding Source</Label>
+                  <Input
+                    id="fundingSource"
+                    placeholder="Grant or contract number"
+                    value={formData.fundingSource}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, fundingSource: e.target.value }))}
                   />
                 </div>
               </div>
@@ -209,7 +356,7 @@ const Submit = () => {
                   id="venue"
                   placeholder="Conference name or journal"
                   value={formData.venue}
-                  onChange={(e) => setFormData(prev => ({ ...prev, venue: e.target.value }))}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, venue: e.target.value }))}
                 />
               </div>
 
@@ -220,7 +367,7 @@ const Submit = () => {
                   placeholder="Provide a brief summary of your manuscript"
                   rows={4}
                   value={formData.abstract}
-                  onChange={(e) => setFormData(prev => ({ ...prev, abstract: e.target.value }))}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, abstract: e.target.value }))}
                 />
               </div>
 
@@ -240,12 +387,8 @@ const Submit = () => {
                       <p className="text-sm text-foreground font-medium">{formData.file.name}</p>
                     ) : (
                       <>
-                        <p className="text-sm text-muted-foreground">
-                          Click to upload or drag and drop
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          PDF or DOCX (max 50MB)
-                        </p>
+                        <p className="text-sm text-muted-foreground">Click to upload or drag and drop</p>
+                        <p className="text-xs text-muted-foreground mt-1">PDF or DOCX (max 50MB)</p>
                       </>
                     )}
                   </label>
@@ -278,7 +421,7 @@ const Submit = () => {
                       <Label className="text-base font-medium">{q.section}</Label>
                       <p className="text-sm text-foreground mt-1 mb-3">{q.question}</p>
                       <p className="text-xs text-muted-foreground mb-4">{q.helpText}</p>
-                      
+
                       <RadioGroup
                         value={formData.certification[q.id] || ""}
                         onValueChange={(value) => handleCertificationChange(q.id, value)}
@@ -286,11 +429,15 @@ const Submit = () => {
                       >
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="yes" id={`${q.id}-yes`} />
-                          <Label htmlFor={`${q.id}-yes`} className="font-normal cursor-pointer">Yes</Label>
+                          <Label htmlFor={`${q.id}-yes`} className="font-normal cursor-pointer">
+                            Yes
+                          </Label>
                         </div>
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="no" id={`${q.id}-no`} />
-                          <Label htmlFor={`${q.id}-no`} className="font-normal cursor-pointer">No</Label>
+                          <Label htmlFor={`${q.id}-no`} className="font-normal cursor-pointer">
+                            No
+                          </Label>
                         </div>
                       </RadioGroup>
                     </div>
@@ -303,10 +450,11 @@ const Submit = () => {
                   <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-foreground">
-                      {riskCount} Risk Indicator{riskCount > 1 ? 's' : ''} Identified
+                      {riskCount} Risk Indicator{riskCount > 1 ? "s" : ""} Identified
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Your submission may require additional review. This is informational only and does not prevent submission.
+                      Your submission may require additional review. This is informational only and does not prevent
+                      submission.
                     </p>
                   </div>
                 </div>
@@ -323,9 +471,7 @@ const Submit = () => {
                 <Send className="h-5 w-5 text-primary" />
                 Review & Submit
               </CardTitle>
-              <CardDescription>
-                Review your submission before final attestation
-              </CardDescription>
+              <CardDescription>Review your submission before final attestation</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="bg-secondary rounded-lg p-4 space-y-4">
@@ -340,6 +486,10 @@ const Submit = () => {
                     <dd className="font-medium">{formData.authors}</dd>
                   </div>
                   <div>
+                    <dt className="text-muted-foreground">School</dt>
+                    <dd className="font-medium">{formData.school}</dd>
+                  </div>
+                  <div>
                     <dt className="text-muted-foreground">Department</dt>
                     <dd className="font-medium">{formData.department}</dd>
                   </div>
@@ -351,7 +501,7 @@ const Submit = () => {
                     <dt className="text-muted-foreground">Target Venue</dt>
                     <dd className="font-medium">{formData.venue || "Not specified"}</dd>
                   </div>
-                  <div>
+                  <div className="col-span-2">
                     <dt className="text-muted-foreground">File</dt>
                     <dd className="font-medium">{formData.file?.name || "No file uploaded"}</dd>
                   </div>
@@ -364,7 +514,11 @@ const Submit = () => {
                   {certificationQuestions.map((q) => (
                     <div key={q.id} className="flex items-center justify-between p-2 bg-card rounded">
                       <span className="text-muted-foreground">{q.section}</span>
-                      <span className={`font-medium ${formData.certification[q.id] === "yes" && q.riskIndicator ? "text-warning" : ""}`}>
+                      <span
+                        className={`font-medium ${
+                          formData.certification[q.id] === "yes" && q.riskIndicator ? "text-warning" : ""
+                        }`}
+                      >
                         {formData.certification[q.id]?.toUpperCase() || "—"}
                       </span>
                     </div>
@@ -374,9 +528,9 @@ const Submit = () => {
 
               <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
                 <p className="text-sm text-foreground">
-                  <strong>Attestation Statement:</strong> By submitting, I attest that the information provided is accurate 
-                  to the best of my knowledge. I understand this self-certification documents my responses but does not 
-                  constitute formal public release approval.
+                  <strong>Attestation Statement:</strong> By submitting, I attest that the information provided is
+                  accurate to the best of my knowledge. I understand this self-certification documents my responses but
+                  does not constitute formal public release approval.
                 </p>
               </div>
             </CardContent>
@@ -385,26 +539,23 @@ const Submit = () => {
 
         {/* Navigation */}
         <div className="flex items-center justify-between mt-8">
-          <Button
-            variant="outline"
-            onClick={() => setStep(s => s - 1)}
-            disabled={step === 1}
-          >
+          <Button variant="outline" onClick={() => setStep((s) => s - 1)} disabled={step === 1 || submitting}>
             <ChevronLeft className="h-4 w-4 mr-2" />
             Previous
           </Button>
 
           {step < totalSteps ? (
-            <Button
-              onClick={() => setStep(s => s + 1)}
-              disabled={!canProceed()}
-            >
+            <Button onClick={() => setStep((s) => s + 1)} disabled={!canProceed()}>
               Next
               <ChevronRight className="h-4 w-4 ml-2" />
             </Button>
           ) : (
-            <Button variant="gold" onClick={handleSubmit}>
-              <Send className="h-4 w-4 mr-2" />
+            <Button variant="gold" onClick={handleSubmit} disabled={submitting}>
+              {submitting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-2" />
+              )}
               Submit Attestation
             </Button>
           )}
