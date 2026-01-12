@@ -8,12 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
-import { FileText, Upload, CheckCircle, AlertTriangle, ChevronLeft, ChevronRight, Send, Loader2 } from "lucide-react";
+import { FileText, Upload, CheckCircle, AlertTriangle, ChevronLeft, ChevronRight, Send, Loader2, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import type { TablesInsert } from "@/integrations/supabase/types";
+import { validateFile, MAX_FILE_SIZE } from "@/lib/validations";
 
 const departments = [
   "Computer Science",
@@ -199,6 +200,7 @@ const certificationQuestions = [
 const Submit = () => {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     authors: "",
@@ -226,9 +228,25 @@ const Submit = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    setFileError(null);
+
     if (file) {
+      const validation = validateFile(file);
+
+      if (!validation.valid) {
+        setFileError(validation.error || "Invalid file");
+        // Reset the input
+        e.target.value = "";
+        return;
+      }
+
       setFormData((prev) => ({ ...prev, file }));
     }
+  };
+
+  const handleRemoveFile = () => {
+    setFormData((prev) => ({ ...prev, file: null }));
+    setFileError(null);
   };
 
   const handleSubmit = async () => {
@@ -495,7 +513,9 @@ const Submit = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="file">Manuscript Upload</Label>
-                <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
+                <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                  fileError ? "border-destructive bg-destructive/5" : "border-border hover:border-primary/50"
+                }`}>
                   <input
                     type="file"
                     id="file"
@@ -503,18 +523,39 @@ const Submit = () => {
                     className="hidden"
                     onChange={handleFileChange}
                   />
-                  <label htmlFor="file" className="cursor-pointer">
-                    <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-                    {formData.file ? (
-                      <p className="text-sm text-foreground font-medium">{formData.file.name}</p>
-                    ) : (
-                      <>
-                        <p className="text-sm text-muted-foreground">Click to upload or drag and drop</p>
-                        <p className="text-xs text-muted-foreground mt-1">PDF or DOCX (max 50MB)</p>
-                      </>
-                    )}
-                  </label>
+                  {formData.file ? (
+                    <div className="flex items-center justify-center gap-3">
+                      <FileText className="h-8 w-8 text-primary" />
+                      <div className="text-left">
+                        <p className="text-sm text-foreground font-medium">{formData.file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(formData.file.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveFile}
+                        className="ml-2 text-muted-foreground hover:text-destructive"
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <label htmlFor="file" className="cursor-pointer">
+                      <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">Click to upload or drag and drop</p>
+                      <p className="text-xs text-muted-foreground mt-1">PDF or DOCX (max 50MB)</p>
+                    </label>
+                  )}
                 </div>
+                {fileError && (
+                  <p className="text-sm text-destructive flex items-center gap-1">
+                    <AlertTriangle className="h-4 w-4" />
+                    {fileError}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
