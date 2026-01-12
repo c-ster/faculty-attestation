@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Progress } from "@/components/ui/progress";
 import { FileText, Upload, CheckCircle, AlertTriangle, ChevronLeft, ChevronRight, Send, Loader2 } from "lucide-react";
@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesInsert } from "@/integrations/supabase/types";
 
 const departments = [
   "Computer Science",
@@ -27,11 +28,112 @@ const departments = [
   "Systems Engineering",
 ];
 
-const schools = [
-  "Graduate School of Engineering and Applied Sciences",
-  "Graduate School of Operational and Information Sciences",
-  "Graduate School of Defense Management",
-  "School of International Graduate Studies",
+// Map departments to their respective schools
+const departmentToSchool: Record<string, string> = {
+  "Computer Science": "Graduate School of Engineering and Applied Sciences",
+  "Electrical Engineering": "Graduate School of Engineering and Applied Sciences",
+  "Mechanical Engineering": "Graduate School of Engineering and Applied Sciences",
+  "Physics": "Graduate School of Engineering and Applied Sciences",
+  "Meteorology": "Graduate School of Engineering and Applied Sciences",
+  "Oceanography": "Graduate School of Engineering and Applied Sciences",
+  "Systems Engineering": "Graduate School of Engineering and Applied Sciences",
+  "Operations Research": "Graduate School of Operational and Information Sciences",
+  "Defense Analysis": "Graduate School of Operational and Information Sciences",
+  "National Security Affairs": "School of International Graduate Studies",
+};
+
+// COEUS Sponsors organized by category
+const coeusSponsorCategories = [
+  {
+    category: "Core DoD Organizations",
+    sponsors: [
+      "Office of the Secretary of Defense (OSD R&E)",
+      "Defense Advanced Research Projects Agency (DARPA)",
+      "Office of Naval Research (ONR)",
+      "Naval Sea Systems Command (NAVSEA)",
+      "Naval Information Warfare Systems Command (NAVWAR)",
+      "Air Force Research Laboratory (AFRL)",
+      "Army Futures Command",
+    ],
+  },
+  {
+    category: "Joint / Defense-Wide",
+    sponsors: [
+      "Defense Innovation Unit (DIU)",
+      "Chief Digital and Artificial Intelligence Office (CDAO)",
+      "Strategic Capabilities Office (SCO)",
+    ],
+  },
+  {
+    category: "National Security & Intelligence Community",
+    sponsors: [
+      "Office of the Director of National Intelligence (ODNI)",
+      "National Reconnaissance Office (NRO)",
+      "National Geospatial-Intelligence Agency (NGA)",
+      "Intelligence Advanced Research Projects Activity (IARPA)",
+    ],
+  },
+  {
+    category: "Defense Primes & Major Integrators",
+    sponsors: [
+      "Lockheed Martin",
+      "Northrop Grumman",
+      "Raytheon",
+      "Boeing Defense",
+      "General Dynamics",
+      "L3Harris",
+      "BAE Systems",
+    ],
+  },
+  {
+    category: "AI, Compute & Software",
+    sponsors: [
+      "NVIDIA",
+      "Microsoft (Azure Gov)",
+      "Amazon Web Services (AWS GovCloud)",
+      "Palantir",
+      "Anduril",
+    ],
+  },
+  {
+    category: "Semiconductors & Electronics",
+    sponsors: [
+      "Analog Devices",
+      "Texas Instruments",
+      "Intel",
+      "Qualcomm",
+      "Teledyne",
+    ],
+  },
+  {
+    category: "Energy & Industrial",
+    sponsors: [
+      "General Electric",
+      "Siemens",
+      "Schneider Electric",
+      "Exelon",
+      "Fluor",
+    ],
+  },
+  {
+    category: "Foundations",
+    sponsors: [
+      "Simons Foundation",
+      "Schmidt Futures",
+      "Carnegie Corporation",
+      "Rockefeller Foundation",
+      "Patrick J. McGovern Foundation",
+    ],
+  },
+  {
+    category: "International Partners",
+    sponsors: [
+      "UK Ministry of Defence",
+      "Defence Science and Technology Group (Australia)",
+      "NATO Allied Command Transformation",
+      "Canadian Department of National Defence",
+    ],
+  },
 ];
 
 const certificationQuestions = [
@@ -83,6 +185,15 @@ const certificationQuestions = [
     riskIndicator: false,
     dbField: "has_prior_release",
   },
+  {
+    id: "coauthor_concurrence",
+    section: "Co-Author Concurrence",
+    question: "Have you received concurrence for release from all co-authors, both internal and external partners?",
+    helpText: "This includes CRADA partners, MOA/MOU collaborators, and other academic collaborators.",
+    riskIndicator: true,
+    riskOnNo: true, // Special flag: risk when answer is "no" instead of "yes"
+    dbField: "has_coauthor_concurrence",
+  },
 ];
 
 const Submit = () => {
@@ -92,10 +203,9 @@ const Submit = () => {
     title: "",
     authors: "",
     department: "",
-    school: "",
     abstract: "",
     sponsor: "",
-    fundingSource: "",
+    coeusProposalNumber: "",
     venue: "",
     file: null as File | null,
     certification: {} as Record<string, string>,
@@ -127,13 +237,23 @@ const Submit = () => {
     setSubmitting(true);
 
     try {
-      // Calculate risk flags
+      // Calculate risk flags - handle both "yes" risk indicators and special "no" risk indicators
       const riskFlags = Object.entries(formData.certification)
-        .filter(([key, value]) => value === "yes" && certificationQuestions.find((q) => q.id === key)?.riskIndicator)
+        .filter(([key, value]) => {
+          const question = certificationQuestions.find((q) => q.id === key);
+          if (!question?.riskIndicator) return false;
+          // For riskOnNo questions, flag when answer is "no"
+          if (question.riskOnNo) return value === "no";
+          // For standard questions, flag when answer is "yes"
+          return value === "yes";
+        })
         .map(([key]) => key);
 
       // Parse authors into array
       const authorsArray = formData.authors.split(";").map((a) => a.trim()).filter(Boolean);
+
+      // Derive school from department
+      const derivedSchool = departmentToSchool[formData.department] || "Naval Postgraduate School";
 
       // Upload manuscript if provided
       let manuscriptPath = null;
@@ -155,24 +275,25 @@ const Submit = () => {
         manuscriptFilename = formData.file.name;
       }
 
-      // Create submission
+      // Create submission with proper typing
+      const submissionData: TablesInsert<"submissions"> = {
+        user_id: user.id,
+        title: formData.title,
+        authors: authorsArray,
+        department: formData.department,
+        school: derivedSchool,
+        abstract: formData.abstract,
+        sponsor: formData.sponsor || null,
+        funding_source: formData.coeusProposalNumber || null,
+        target_venue: formData.venue || null,
+        manuscript_path: manuscriptPath,
+        manuscript_filename: manuscriptFilename,
+        risk_flags: riskFlags,
+      };
+
       const { data: submission, error: submissionError } = await supabase
         .from("submissions")
-        .insert({
-          user_id: user.id,
-          title: formData.title,
-          authors: authorsArray,
-          department: formData.department,
-          school: formData.school,
-          abstract: formData.abstract,
-          sponsor: formData.sponsor || null,
-          funding_source: formData.fundingSource || null,
-          target_venue: formData.venue || null,
-          manuscript_path: manuscriptPath,
-          manuscript_filename: manuscriptFilename,
-          risk_flags: riskFlags,
-          submission_id: "", // Will be auto-generated by trigger
-        } as any)
+        .insert(submissionData)
         .select()
         .single();
 
@@ -189,6 +310,7 @@ const Submit = () => {
         has_foreign_involvement: formData.certification.foreign_involvement === "yes",
         has_sponsor_restrictions: formData.certification.sponsor_restrictions === "yes",
         has_prior_release: formData.certification.prior_release === "yes",
+        has_coauthor_concurrence: formData.certification.coauthor_concurrence === "yes",
         attested_accurate: true,
         attested_at: new Date().toISOString(),
       });
@@ -228,7 +350,7 @@ const Submit = () => {
 
   const canProceed = () => {
     if (step === 1) {
-      return formData.title && formData.authors && formData.department && formData.school && formData.abstract;
+      return formData.title && formData.authors && formData.department && formData.abstract;
     }
     if (step === 2) {
       return Object.keys(formData.certification).length === certificationQuestions.length;
@@ -236,9 +358,13 @@ const Submit = () => {
     return true;
   };
 
-  const riskCount = Object.entries(formData.certification).filter(
-    ([key, value]) => value === "yes" && certificationQuestions.find((q) => q.id === key)?.riskIndicator
-  ).length;
+  // Count risk indicators - handle both "yes" and special "no" risk cases
+  const riskCount = Object.entries(formData.certification).filter(([key, value]) => {
+    const question = certificationQuestions.find((q) => q.id === key);
+    if (!question?.riskIndicator) return false;
+    if (question.riskOnNo) return value === "no";
+    return value === "yes";
+  }).length;
 
   return (
     <Layout>
@@ -289,64 +415,59 @@ const Submit = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="school">School *</Label>
-                  <Select
-                    value={formData.school}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, school: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select school" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {schools.map((school) => (
-                        <SelectItem key={school} value={school}>
-                          {school}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="department">Department *</Label>
-                  <Select
-                    value={formData.department}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, department: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.map((dept) => (
-                        <SelectItem key={dept} value={dept}>
-                          {dept}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="department">Department *</Label>
+                <Select
+                  value={formData.department}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, department: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept} value={dept}>
+                        {dept}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="sponsor">Sponsor</Label>
-                  <Input
-                    id="sponsor"
-                    placeholder="e.g., ONR, DARPA, NSF"
+                  <Select
                     value={formData.sponsor}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, sponsor: e.target.value }))}
-                  />
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, sponsor: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select sponsor" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      {coeusSponsorCategories.map((category) => (
+                        <SelectGroup key={category.category}>
+                          <SelectLabel className="font-semibold text-xs uppercase tracking-wide text-muted-foreground px-2 py-1.5">
+                            {category.category}
+                          </SelectLabel>
+                          {category.sponsors.map((sponsor) => (
+                            <SelectItem key={sponsor} value={sponsor}>
+                              {sponsor}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="fundingSource">Funding Source</Label>
+                  <Label htmlFor="coeusProposalNumber">Coeus Proposal #</Label>
                   <Input
-                    id="fundingSource"
-                    placeholder="Grant or contract number"
-                    value={formData.fundingSource}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, fundingSource: e.target.value }))}
+                    id="coeusProposalNumber"
+                    placeholder="Enter Coeus proposal number"
+                    value={formData.coeusProposalNumber}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, coeusProposalNumber: e.target.value }))}
                   />
                 </div>
               </div>
@@ -412,10 +533,16 @@ const Submit = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
-              {certificationQuestions.map((q) => (
+              {certificationQuestions.map((q) => {
+                const isRiskTriggered = q.riskIndicator && (
+                  q.riskOnNo
+                    ? formData.certification[q.id] === "no"
+                    : formData.certification[q.id] === "yes"
+                );
+                return (
                 <div key={q.id} className="border border-border rounded-lg p-4">
                   <div className="flex items-start gap-3">
-                    {q.riskIndicator && formData.certification[q.id] === "yes" && (
+                    {isRiskTriggered && (
                       <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
                     )}
                     <div className="flex-1">
@@ -444,7 +571,8 @@ const Submit = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              })}
 
               {riskCount > 0 && (
                 <div className="bg-warning/10 border border-warning/30 rounded-lg p-4 flex items-start gap-3">
@@ -487,16 +615,16 @@ const Submit = () => {
                     <dd className="font-medium">{formData.authors}</dd>
                   </div>
                   <div>
-                    <dt className="text-muted-foreground">School</dt>
-                    <dd className="font-medium">{formData.school}</dd>
-                  </div>
-                  <div>
                     <dt className="text-muted-foreground">Department</dt>
                     <dd className="font-medium">{formData.department}</dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">Sponsor</dt>
                     <dd className="font-medium">{formData.sponsor || "Not specified"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Coeus Proposal #</dt>
+                    <dd className="font-medium">{formData.coeusProposalNumber || "Not specified"}</dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">Target Venue</dt>
@@ -512,18 +640,21 @@ const Submit = () => {
               <div className="bg-secondary rounded-lg p-4 space-y-4">
                 <h4 className="font-medium text-foreground">Certification Responses</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                  {certificationQuestions.map((q) => (
-                    <div key={q.id} className="flex items-center justify-between p-2 bg-card rounded">
-                      <span className="text-muted-foreground">{q.section}</span>
-                      <span
-                        className={`font-medium ${
-                          formData.certification[q.id] === "yes" && q.riskIndicator ? "text-warning" : ""
-                        }`}
-                      >
-                        {formData.certification[q.id]?.toUpperCase() || "—"}
-                      </span>
-                    </div>
-                  ))}
+                  {certificationQuestions.map((q) => {
+                    const isRiskTriggered = q.riskIndicator && (
+                      q.riskOnNo
+                        ? formData.certification[q.id] === "no"
+                        : formData.certification[q.id] === "yes"
+                    );
+                    return (
+                      <div key={q.id} className="flex items-center justify-between p-2 bg-card rounded">
+                        <span className="text-muted-foreground">{q.section}</span>
+                        <span className={`font-medium ${isRiskTriggered ? "text-warning" : ""}`}>
+                          {formData.certification[q.id]?.toUpperCase() || "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
