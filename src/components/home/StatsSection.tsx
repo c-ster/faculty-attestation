@@ -16,44 +16,53 @@ const StatsSection = () => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // Get current year start
-        const currentYear = new Date().getFullYear();
-        const yearStart = `${currentYear}-01-01`;
+        // Use the SECURITY DEFINER function to get aggregate stats (bypasses RLS)
+        const { data, error } = await supabase.rpc("get_public_stats");
 
-        // Fetch all submissions
-        const { data: allSubmissions, error: allError } = await supabase
-          .from("submissions")
-          .select("id, status, department, created_at");
+        if (error) {
+          console.error("Error calling get_public_stats:", error);
+          // Fallback to direct query if function doesn't exist yet
+          const { data: fallbackData } = await supabase
+            .from("submissions")
+            .select("id, status, department, created_at");
 
-        if (allError) throw allError;
+          const currentYear = new Date().getFullYear();
+          const yearStart = `${currentYear}-01-01`;
 
-        // Calculate stats
-        const submissionsThisYear = allSubmissions?.filter(
-          (s) => s.created_at >= yearStart
-        ).length || 0;
+          const submissionsThisYear = fallbackData?.filter(
+            (s) => s.created_at >= yearStart
+          ).length || 0;
 
-        const totalSubmissions = allSubmissions?.length || 0;
-        const releasedCount = allSubmissions?.filter(
-          (s) => s.status === "released"
-        ).length || 0;
+          const totalSubmissions = fallbackData?.length || 0;
+          const releasedCount = fallbackData?.filter(
+            (s) => s.status === "released"
+          ).length || 0;
 
-        const releasedPercentage = totalSubmissions > 0
-          ? Math.round((releasedCount / totalSubmissions) * 100)
-          : 0;
+          const releasedPercentage = totalSubmissions > 0
+            ? Math.round((releasedCount / totalSubmissions) * 100)
+            : 0;
 
-        const uniqueDepartments = new Set(
-          allSubmissions?.map((s) => s.department) || []
-        );
+          const uniqueDepartments = new Set(
+            fallbackData?.map((s) => s.department) || []
+          );
 
-        setStats({
-          submissionsThisYear,
-          releasedPercentage,
-          departmentsServed: uniqueDepartments.size,
-          totalSubmissions,
-        });
+          setStats({
+            submissionsThisYear,
+            releasedPercentage,
+            departmentsServed: uniqueDepartments.size,
+            totalSubmissions,
+          });
+        } else {
+          // Use the function result
+          setStats({
+            submissionsThisYear: data?.submissions_this_year || 0,
+            releasedPercentage: data?.released_percentage || 0,
+            departmentsServed: data?.departments_count || 0,
+            totalSubmissions: data?.total_submissions || 0,
+          });
+        }
       } catch (error) {
         console.error("Error fetching stats:", error);
-        // Set fallback values on error
         setStats({
           submissionsThisYear: 0,
           releasedPercentage: 0,

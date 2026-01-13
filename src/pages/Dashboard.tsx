@@ -441,23 +441,6 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Workflow Controls Notice */}
-        <Card className="mt-6 border-dashed">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-lg bg-muted">
-                <Clock className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <div>
-                <h4 className="font-medium text-foreground">Workflow Controls (Phase 2)</h4>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Automated routing, approval workflows, and AI-assisted triage capabilities are planned for future phases.
-                  Currently, all status updates are managed manually by designated administrators.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </Layout>
   );
