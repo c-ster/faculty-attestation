@@ -1,203 +1,189 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Layout from "@/components/layout/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart3, FileText, CheckCircle, Clock, AlertTriangle, Download, TrendingUp, TrendingDown, Building2, Loader2, ShieldAlert } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from "recharts";
+import { BarChart3, FileText, CheckCircle, Clock, AlertTriangle, Download, Building2, Loader2, ShieldAlert } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { Link } from "react-router-dom";
 
-interface Submission {
-  id: string;
-  status: string;
-  department: string;
-  sponsor: string | null;
-  risk_flags: string[] | null;
-  created_at: string;
+interface DashboardStats {
+  total: number;
+  released: number;
+  under_review: number;
+  submitted: number;
+  not_released: number;
+  with_risk_flags: number;
+  by_department: { name: string; value: number }[] | null;
+  by_month: { month: string; submissions: number }[] | null;
+  by_sponsor: { name: string; value: number }[] | null;
 }
 
 const COLORS = ['hsl(215, 80%, 15%)', 'hsl(43, 70%, 45%)', 'hsl(152, 60%, 40%)', 'hsl(38, 92%, 50%)', 'hsl(215, 70%, 35%)', 'hsl(210, 20%, 70%)'];
 
 const Dashboard = () => {
   const [timeRange, setTimeRange] = useState("6m");
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const { isLeadership, loading: roleLoading } = useUserRole();
 
   useEffect(() => {
-    const fetchSubmissions = async () => {
+    const fetchDashboardData = async () => {
       setLoading(true);
       try {
-        const { data, error } = await supabase
-          .from("submissions")
-          .select("id, status, department, sponsor, risk_flags, created_at")
-          .order("created_at", { ascending: false });
+        // Convert time range to months
+        const monthsMap: Record<string, number> = {
+          "1m": 1,
+          "3m": 3,
+          "6m": 6,
+          "1y": 12,
+        };
+        const months = monthsMap[timeRange] || 6;
 
-        if (error) throw error;
-        setSubmissions(data || []);
+        // Try to use the RPC function first (bypasses RLS)
+        const { data: rpcData, error: rpcError } = await supabase.rpc(
+          "get_leadership_stats",
+          { time_range_months: months }
+        );
+
+        if (rpcError) {
+          console.error("RPC error, falling back to direct query:", rpcError);
+          // Fallback to direct query
+          const { data, error } = await supabase
+            .from("submissions")
+            .select("id, status, department, sponsor, risk_flags, created_at")
+            .order("created_at", { ascending: false });
+
+          if (error) throw error;
+
+          // Calculate stats from raw data
+          const cutoffDate = new Date();
+          cutoffDate.setMonth(cutoffDate.getMonth() - months);
+
+          const filtered = (data || []).filter(
+            (s) => new Date(s.created_at) >= cutoffDate
+          );
+
+          // Calculate department counts
+          const deptCounts: Record<string, number> = {};
+          filtered.forEach((s) => {
+            const dept = s.department || "Unknown";
+            deptCounts[dept] = (deptCounts[dept] || 0) + 1;
+          });
+
+          // Calculate sponsor counts
+          const sponsorCounts: Record<string, number> = {};
+          filtered.forEach((s) => {
+            const sponsor = s.sponsor || "Not Specified";
+            sponsorCounts[sponsor] = (sponsorCounts[sponsor] || 0) + 1;
+          });
+
+          // Calculate monthly counts
+          const monthCounts: Record<string, number> = {};
+          const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+          filtered.forEach((s) => {
+            const date = new Date(s.created_at);
+            const monthKey = monthNames[date.getMonth()];
+            monthCounts[monthKey] = (monthCounts[monthKey] || 0) + 1;
+          });
+
+          setDashboardStats({
+            total: filtered.length,
+            released: filtered.filter((s) => s.status === "released").length,
+            under_review: filtered.filter((s) => s.status === "under_review").length,
+            submitted: filtered.filter((s) => s.status === "submitted").length,
+            not_released: filtered.filter((s) => s.status === "not_released").length,
+            with_risk_flags: filtered.filter((s) => s.risk_flags && s.risk_flags.length > 0).length,
+            by_department: Object.entries(deptCounts)
+              .map(([name, value]) => ({ name, value }))
+              .sort((a, b) => b.value - a.value)
+              .slice(0, 6),
+            by_month: Object.entries(monthCounts)
+              .map(([month, submissions]) => ({ month, submissions }))
+              .slice(-6),
+            by_sponsor: Object.entries(sponsorCounts)
+              .map(([name, value]) => ({ name, value }))
+              .sort((a, b) => b.value - a.value)
+              .slice(0, 5),
+          });
+        } else {
+          // Use RPC data directly
+          setDashboardStats(rpcData as DashboardStats);
+        }
       } catch (error) {
-        console.error("Error fetching submissions:", error);
+        console.error("Error fetching dashboard data:", error);
+        setDashboardStats({
+          total: 0,
+          released: 0,
+          under_review: 0,
+          submitted: 0,
+          not_released: 0,
+          with_risk_flags: 0,
+          by_department: [],
+          by_month: [],
+          by_sponsor: [],
+        });
       } finally {
         setLoading(false);
       }
     };
 
-    fetchSubmissions();
-  }, []);
+    fetchDashboardData();
+  }, [timeRange]);
 
-  // Filter submissions by time range
-  const filteredSubmissions = useMemo(() => {
-    const now = new Date();
-    let cutoffDate = new Date();
+  // Derive stats array for display
+  const stats = dashboardStats ? [
+    { label: "Total Submissions", value: dashboardStats.total.toLocaleString(), icon: FileText, color: "text-primary" },
+    { label: "Released", value: dashboardStats.released.toLocaleString(), icon: CheckCircle, color: "text-success" },
+    { label: "Under Review", value: dashboardStats.under_review.toLocaleString(), icon: Clock, color: "text-warning" },
+    { label: "Risk Flags", value: dashboardStats.with_risk_flags.toLocaleString(), icon: AlertTriangle, color: "text-destructive" },
+  ] : [];
 
-    switch (timeRange) {
-      case "1m":
-        cutoffDate.setMonth(now.getMonth() - 1);
-        break;
-      case "3m":
-        cutoffDate.setMonth(now.getMonth() - 3);
-        break;
-      case "6m":
-        cutoffDate.setMonth(now.getMonth() - 6);
-        break;
-      case "1y":
-        cutoffDate.setFullYear(now.getFullYear() - 1);
-        break;
-      default:
-        cutoffDate.setMonth(now.getMonth() - 6);
+  // Chart data
+  const submissionsByMonth = dashboardStats?.by_month || [];
+  const submissionsByDepartment = dashboardStats?.by_department || [];
+  const submissionsBySponsor = dashboardStats?.by_sponsor || [];
+
+  const handleExport = async () => {
+    try {
+      const { data } = await supabase
+        .from("submissions")
+        .select("submission_id, title, department, sponsor, status, risk_flags, created_at")
+        .order("created_at", { ascending: false });
+
+      if (!data || data.length === 0) {
+        alert("No data to export");
+        return;
+      }
+
+      const headers = ["Submission ID", "Title", "Department", "Sponsor", "Status", "Risk Flags", "Created At"];
+      const csvContent = [
+        headers.join(","),
+        ...data.map((s) =>
+          [
+            s.submission_id,
+            `"${(s.title || "").replace(/"/g, '""')}"`,
+            `"${(s.department || "").replace(/"/g, '""')}"`,
+            `"${(s.sponsor || "N/A").replace(/"/g, '""')}"`,
+            s.status,
+            s.risk_flags?.length || 0,
+            new Date(s.created_at).toLocaleDateString(),
+          ].join(",")
+        ),
+      ].join("\n");
+
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `submissions-export-${new Date().toISOString().split("T")[0]}.csv`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Export error:", error);
     }
-
-    return submissions.filter(
-      (s) => new Date(s.created_at) >= cutoffDate
-    );
-  }, [submissions, timeRange]);
-
-  // Calculate stats
-  const stats = useMemo(() => {
-    const total = filteredSubmissions.length;
-    const released = filteredSubmissions.filter((s) => s.status === "released").length;
-    const underReview = filteredSubmissions.filter((s) => s.status === "under_review").length;
-    const withRiskFlags = filteredSubmissions.filter(
-      (s) => s.risk_flags && s.risk_flags.length > 0
-    ).length;
-
-    return [
-      { label: "Total Submissions", value: total.toLocaleString(), icon: FileText, color: "text-primary" },
-      { label: "Released", value: released.toLocaleString(), icon: CheckCircle, color: "text-success" },
-      { label: "Under Review", value: underReview.toLocaleString(), icon: Clock, color: "text-warning" },
-      { label: "Risk Flags", value: withRiskFlags.toLocaleString(), icon: AlertTriangle, color: "text-destructive" },
-    ];
-  }, [filteredSubmissions]);
-
-  // Submissions by month
-  const submissionsByMonth = useMemo(() => {
-    const monthCounts: Record<string, number> = {};
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-    filteredSubmissions.forEach((s) => {
-      const date = new Date(s.created_at);
-      const monthKey = `${months[date.getMonth()]} ${date.getFullYear()}`;
-      monthCounts[monthKey] = (monthCounts[monthKey] || 0) + 1;
-    });
-
-    // Sort by date and take last 6 entries
-    return Object.entries(monthCounts)
-      .map(([month, submissions]) => ({ month: month.split(" ")[0], submissions }))
-      .slice(-6);
-  }, [filteredSubmissions]);
-
-  // Submissions by department
-  const submissionsByDepartment = useMemo(() => {
-    const deptCounts: Record<string, number> = {};
-
-    filteredSubmissions.forEach((s) => {
-      const dept = s.department || "Unknown";
-      deptCounts[dept] = (deptCounts[dept] || 0) + 1;
-    });
-
-    return Object.entries(deptCounts)
-      .map(([name, value]) => ({
-        name: name.length > 15 ? name.substring(0, 15) + "..." : name,
-        value,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6);
-  }, [filteredSubmissions]);
-
-  // Submissions by sponsor
-  const submissionsBySponsor = useMemo(() => {
-    const sponsorCounts: Record<string, number> = {};
-
-    filteredSubmissions.forEach((s) => {
-      const sponsor = s.sponsor || "Not Specified";
-      // Shorten sponsor names
-      const shortName = sponsor.includes("(")
-        ? sponsor.match(/\(([^)]+)\)/)?.[1] || sponsor.substring(0, 20)
-        : sponsor.substring(0, 20);
-      sponsorCounts[shortName] = (sponsorCounts[shortName] || 0) + 1;
-    });
-
-    return Object.entries(sponsorCounts)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
-  }, [filteredSubmissions]);
-
-  // Risk trends by month
-  const riskTrends = useMemo(() => {
-    const monthData: Record<string, { noRisk: number; lowRisk: number; highRisk: number }> = {};
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-    filteredSubmissions.forEach((s) => {
-      const date = new Date(s.created_at);
-      const monthKey = months[date.getMonth()];
-
-      if (!monthData[monthKey]) {
-        monthData[monthKey] = { noRisk: 0, lowRisk: 0, highRisk: 0 };
-      }
-
-      const riskCount = s.risk_flags?.length || 0;
-      if (riskCount === 0) {
-        monthData[monthKey].noRisk++;
-      } else if (riskCount <= 2) {
-        monthData[monthKey].lowRisk++;
-      } else {
-        monthData[monthKey].highRisk++;
-      }
-    });
-
-    return Object.entries(monthData)
-      .map(([month, data]) => ({ month, ...data }))
-      .slice(-6);
-  }, [filteredSubmissions]);
-
-  const handleExport = () => {
-    // Create CSV content
-    const headers = ["Submission ID", "Title", "Department", "Sponsor", "Status", "Risk Flags", "Created At"];
-    const csvContent = [
-      headers.join(","),
-      ...filteredSubmissions.map((s) =>
-        [
-          s.id,
-          `"${s.department}"`,
-          `"${s.sponsor || "N/A"}"`,
-          s.status,
-          s.risk_flags?.length || 0,
-          new Date(s.created_at).toLocaleDateString(),
-        ].join(",")
-      ),
-    ].join("\n");
-
-    // Download CSV
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `submissions-export-${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
   };
 
   if (loading || roleLoading) {
@@ -343,7 +329,7 @@ const Dashboard = () => {
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                         labelLine={false}
                       >
-                        {submissionsByDepartment.map((entry, index) => (
+                        {submissionsByDepartment.map((_, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
@@ -360,87 +346,44 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Charts Row 2 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Risk Indicators Trend */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5" />
-                Risk Indicators Trend
-              </CardTitle>
-              <CardDescription>Submissions by risk level over time</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[300px]">
-                {riskTrends.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={riskTrends}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="month" className="text-xs" />
-                      <YAxis className="text-xs" />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px'
-                        }}
-                      />
-                      <Legend />
-                      <Line type="monotone" dataKey="noRisk" name="No Risk" stroke="hsl(152, 60%, 40%)" strokeWidth={2} />
-                      <Line type="monotone" dataKey="lowRisk" name="Low Risk" stroke="hsl(38, 92%, 50%)" strokeWidth={2} />
-                      <Line type="monotone" dataKey="highRisk" name="High Risk" stroke="hsl(0, 72%, 51%)" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    No data available for this period
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* By Sponsor */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Submissions by Sponsor</CardTitle>
-              <CardDescription>Funding source distribution</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {submissionsBySponsor.length > 0 ? (
-                  submissionsBySponsor.map((sponsor, index) => {
-                    const total = submissionsBySponsor.reduce((acc, s) => acc + s.value, 0);
-                    const percentage = (sponsor.value / total) * 100;
-                    return (
-                      <div key={sponsor.name}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium">{sponsor.name}</span>
-                          <span className="text-sm text-muted-foreground">{sponsor.value}</span>
-                        </div>
-                        <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-500"
-                            style={{
-                              width: `${percentage}%`,
-                              backgroundColor: COLORS[index % COLORS.length]
-                            }}
-                          />
-                        </div>
+        {/* By Sponsor */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Submissions by Sponsor</CardTitle>
+            <CardDescription>Funding source distribution</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {submissionsBySponsor.length > 0 ? (
+                submissionsBySponsor.map((sponsor, index) => {
+                  const total = submissionsBySponsor.reduce((acc, s) => acc + s.value, 0);
+                  const percentage = (sponsor.value / total) * 100;
+                  return (
+                    <div key={sponsor.name}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium">{sponsor.name}</span>
+                        <span className="text-sm text-muted-foreground">{sponsor.value}</span>
                       </div>
-                    );
-                  })
-                ) : (
-                  <div className="flex items-center justify-center h-[200px] text-muted-foreground">
-                    No data available for this period
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
+                      <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${percentage}%`,
+                            backgroundColor: COLORS[index % COLORS.length]
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="flex items-center justify-center h-[100px] text-muted-foreground">
+                  No data available for this period
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </Layout>
   );
