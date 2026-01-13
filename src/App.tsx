@@ -11,6 +11,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Submit from "./pages/Submit";
 import Submissions from "./pages/Submissions";
+import SubmissionDetail from "./pages/SubmissionDetail";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 
@@ -41,6 +42,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Submissions />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/submissions/:id"
+                element={
+                  <ProtectedRoute>
+                    <SubmissionDetail />
                   </ProtectedRoute>
                 }
               />
