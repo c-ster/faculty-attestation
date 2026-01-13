@@ -1,9 +1,11 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Shield, FileText, LayoutDashboard, User, Menu, X, LogOut, LogIn, Settings } from "lucide-react";
+import { Shield, FileText, LayoutDashboard, User, Menu, X, LogOut, LogIn, Settings, ClipboardList } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
+import NotificationBell from "@/components/notifications/NotificationBell";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,15 +19,21 @@ const Header = () => {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user, profile, signOut } = useAuth();
+  const { isLeadership } = useUserRole();
 
   const navLinks = [
     { href: "/", label: "Home", icon: Shield },
     { href: "/submit", label: "New Submission", icon: FileText, protected: true },
     { href: "/submissions", label: "My Submissions", icon: User, protected: true },
+    { href: "/review-queue", label: "Review Queue", icon: ClipboardList, protected: true, leadershipOnly: true },
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, protected: true },
   ];
 
-  const visibleLinks = navLinks.filter(link => !link.protected || user);
+  const visibleLinks = navLinks.filter(link => {
+    if (link.protected && !user) return false;
+    if (link.leadershipOnly && !isLeadership) return false;
+    return true;
+  });
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -79,6 +87,7 @@ const Header = () => {
 
           {/* User Menu (Desktop) */}
           <div className="hidden md:flex items-center gap-4">
+            {user && <NotificationBell />}
             {user && profile ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

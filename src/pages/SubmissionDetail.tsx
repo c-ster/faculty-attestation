@@ -33,6 +33,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useToast } from "@/hooks/use-toast";
+import WorkflowStatusCard from "@/components/workflow/WorkflowStatusCard";
+import AITriageCard from "@/components/workflow/AITriageCard";
+import ReviewPanel from "@/components/workflow/ReviewPanel";
 
 interface Submission {
   id: string;
@@ -429,6 +432,19 @@ const SubmissionDetail = () => {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {/* Workflow & AI Triage Section (Leadership View) */}
+          {isLeadership && (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <WorkflowStatusCard submissionId={submission.id} />
+              <AITriageCard submissionId={submission.id} />
+            </div>
+          )}
+
+          {/* Review Panel (for assigned reviewers) */}
+          {isLeadership && (
+            <ReviewPanel submissionId={submission.id} />
           )}
         </div>
 

@@ -14,6 +14,7 @@ import Submissions from "./pages/Submissions";
 import SubmissionDetail from "./pages/SubmissionDetail";
 import Dashboard from "./pages/Dashboard";
 import Profile from "./pages/Profile";
+import ReviewerQueue from "./pages/ReviewerQueue";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -67,6 +68,14 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <Profile />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/review-queue"
+                element={
+                  <ProtectedRoute>
+                    <ReviewerQueue />
                   </ProtectedRoute>
                 }
               />
