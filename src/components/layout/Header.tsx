@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Shield, FileText, LayoutDashboard, User, Menu, X, LogOut, LogIn } from "lucide-react";
+import { Shield, FileText, LayoutDashboard, User, Menu, X, LogOut, LogIn, Settings } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -96,6 +96,12 @@ const Header = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem asChild>
+                    <Link to="/profile" className="cursor-pointer">
+                      <Settings className="h-4 w-4 mr-2" />
+                      My Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
                     <Link to="/submissions" className="cursor-pointer">
                       <User className="h-4 w-4 mr-2" />
                       My Submissions
@@ -158,7 +164,11 @@ const Header = () => {
             
             {user && profile ? (
               <div className="mt-4 pt-4 border-t border-border">
-                <div className="flex items-center gap-3 px-4 mb-4">
+                <Link
+                  to="/profile"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-4 mb-2"
+                >
                   <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center">
                     <span className="text-sm font-medium text-primary-foreground">
                       {getInitials(profile.full_name)}
@@ -168,7 +178,17 @@ const Header = () => {
                     <p className="text-sm font-medium text-foreground">{profile.full_name}</p>
                     <p className="text-xs text-muted-foreground">{profile.department || "Faculty"}</p>
                   </div>
-                </div>
+                </Link>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start"
+                  asChild
+                >
+                  <Link to="/profile" onClick={() => setMobileMenuOpen(false)}>
+                    <Settings className="h-4 w-4 mr-2" />
+                    My Profile
+                  </Link>
+                </Button>
                 <Button
                   variant="ghost"
                   className="w-full justify-start text-destructive"

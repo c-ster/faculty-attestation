@@ -5,10 +5,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ArrowLeft,
   FileText,
-  User,
   Building2,
   Calendar,
   AlertTriangle,
@@ -17,9 +27,12 @@ import {
   Download,
   Clock,
   Loader2,
+  Shield,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useToast } from "@/hooks/use-toast";
 
 interface Submission {
   id: string;
@@ -38,6 +51,7 @@ interface Submission {
   risk_flags: string[] | null;
   created_at: string;
   updated_at: string;
+  user_id: string;
 }
 
 interface SelfCertification {
@@ -50,6 +64,8 @@ interface SelfCertification {
   has_coauthor_concurrence: boolean;
   attested_at: string | null;
 }
+
+type SubmissionStatus = "submitted" | "under_review" | "released" | "not_released";
 
 const statusConfig: Record<string, { label: string; className: string; icon: typeof CheckCircle }> = {
   submitted: { label: "Submitted", className: "bg-blue-100 text-blue-800", icon: Clock },
@@ -72,10 +88,19 @@ const SubmissionDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isLeadership, isAdmin } = useUserRole();
+  const { toast } = useToast();
+
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [certification, setCertification] = useState<SelfCertification | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Status update state
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
+  const [newStatus, setNewStatus] = useState<SubmissionStatus | "">("");
+  const [statusNote, setStatusNote] = useState("");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   useEffect(() => {
     const fetchSubmission = async () => {
@@ -83,13 +108,17 @@ const SubmissionDetail = () => {
 
       setLoading(true);
       try {
-        // Fetch submission
-        const { data: subData, error: subError } = await supabase
+        // Leadership can view any submission, regular users only their own
+        let query = supabase
           .from("submissions")
           .select("*")
-          .eq("id", id)
-          .eq("user_id", user.id)
-          .single();
+          .eq("id", id);
+
+        if (!isLeadership) {
+          query = query.eq("user_id", user.id);
+        }
+
+        const { data: subData, error: subError } = await query.single();
 
         if (subError) throw subError;
         if (!subData) throw new Error("Submission not found");
@@ -115,7 +144,7 @@ const SubmissionDetail = () => {
     };
 
     fetchSubmission();
-  }, [id, user]);
+  }, [id, user, isLeadership]);
 
   const handleDownloadManuscript = async () => {
     if (!submission?.manuscript_path) return;
@@ -135,6 +164,55 @@ const SubmissionDetail = () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Error downloading manuscript:", err);
+      toast({
+        title: "Download Failed",
+        description: "Could not download the manuscript.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleStatusUpdate = async () => {
+    if (!submission || !newStatus || !user) return;
+
+    setUpdatingStatus(true);
+    try {
+      // Update submission status
+      const { error: updateError } = await supabase
+        .from("submissions")
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", submission.id);
+
+      if (updateError) throw updateError;
+
+      // Log the status change
+      await supabase.from("attestation_logs").insert({
+        submission_id: submission.id,
+        user_id: user.id,
+        action: "status_changed",
+        previous_value: JSON.stringify({ status: submission.status }),
+        new_value: JSON.stringify({ status: newStatus, note: statusNote }),
+      });
+
+      // Update local state
+      setSubmission({ ...submission, status: newStatus });
+      setShowStatusDialog(false);
+      setNewStatus("");
+      setStatusNote("");
+
+      toast({
+        title: "Status Updated",
+        description: `Submission status changed to "${statusConfig[newStatus]?.label || newStatus}".`,
+      });
+    } catch (err) {
+      console.error("Error updating status:", err);
+      toast({
+        title: "Update Failed",
+        description: "Could not update the submission status.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -173,6 +251,7 @@ const SubmissionDetail = () => {
   }
 
   const StatusIcon = statusConfig[submission.status]?.icon || Clock;
+  const isOwner = submission.user_id === user?.id;
 
   return (
     <Layout>
@@ -183,6 +262,12 @@ const SubmissionDetail = () => {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
+          {isLeadership && !isOwner && (
+            <Badge variant="outline" className="text-muted-foreground">
+              <Shield className="h-3 w-3 mr-1" />
+              Viewing as reviewer
+            </Badge>
+          )}
         </div>
 
         {/* Title and Status */}
@@ -197,6 +282,18 @@ const SubmissionDetail = () => {
               <StatusIcon className="h-4 w-4" />
               {statusConfig[submission.status]?.label || submission.status}
             </span>
+            {isLeadership && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setNewStatus(submission.status as SubmissionStatus);
+                  setShowStatusDialog(true);
+                }}
+              >
+                Change Status
+              </Button>
+            )}
           </div>
         </div>
 
@@ -334,6 +431,57 @@ const SubmissionDetail = () => {
             </Card>
           )}
         </div>
+
+        {/* Status Update Dialog */}
+        <Dialog open={showStatusDialog} onOpenChange={setShowStatusDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Update Submission Status</DialogTitle>
+              <DialogDescription>
+                Change the status for "{submission.title}"
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>New Status</Label>
+                <Select value={newStatus} onValueChange={(v) => setNewStatus(v as SubmissionStatus)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="submitted">Submitted</SelectItem>
+                    <SelectItem value="under_review">Under Review</SelectItem>
+                    <SelectItem value="released">Released</SelectItem>
+                    <SelectItem value="not_released">Not Released</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Note (optional)</Label>
+                <Textarea
+                  placeholder="Add a note about this status change..."
+                  value={statusNote}
+                  onChange={(e) => setStatusNote(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowStatusDialog(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleStatusUpdate}
+                disabled={!newStatus || newStatus === submission.status || updatingStatus}
+              >
+                {updatingStatus ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                Update Status
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );
