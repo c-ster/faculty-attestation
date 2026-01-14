@@ -43,10 +43,12 @@ const Dashboard = () => {
         const months = monthsMap[timeRange] || 6;
 
         // Try to use the RPC function first (bypasses RLS)
+        console.log("Calling get_leadership_stats RPC with months:", months);
         const { data: rpcData, error: rpcError } = await supabase.rpc(
           "get_leadership_stats",
           { time_range_months: months }
         );
+        console.log("get_leadership_stats response:", { rpcData, rpcError });
 
         if (rpcError) {
           console.error("RPC error, falling back to direct query:", rpcError);

@@ -17,7 +17,9 @@ const StatsSection = () => {
     const fetchStats = async () => {
       try {
         // Use the SECURITY DEFINER function to get aggregate stats (bypasses RLS)
+        console.log("Calling get_public_stats RPC...");
         const { data, error } = await supabase.rpc("get_public_stats");
+        console.log("get_public_stats response:", { data, error });
 
         if (error) {
           console.error("Error calling get_public_stats:", error);

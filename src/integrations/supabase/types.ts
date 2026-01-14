@@ -673,6 +673,32 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_leadership_stats: {
+        Args: { time_range_months?: number }
+        Returns: {
+          total: number
+          released: number
+          under_review: number
+          submitted: number
+          not_released: number
+          with_risk_flags: number
+          by_department: { name: string; value: number }[] | null
+          by_month: { month: string; month_num: number; submissions: number }[] | null
+          by_sponsor: { name: string; value: number }[] | null
+        }
+      }
+      get_public_stats: {
+        Args: Record<string, never>
+        Returns: {
+          total_submissions: number
+          submissions_this_year: number
+          released_count: number
+          released_percentage: number
+          departments_count: number
+          under_review_count: number
+          with_risk_flags: number
+        }
+      }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
