@@ -10,6 +10,7 @@ interface Stats {
 }
 
 const StatsSection = () => {
+  console.warn("=== StatsSection component mounted ===");
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
