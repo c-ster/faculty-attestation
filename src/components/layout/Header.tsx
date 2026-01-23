@@ -5,6 +5,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
+import NotificationBell from "@/components/NotificationBell";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -86,6 +87,7 @@ const Header = () => {
 
           {/* User Menu (Desktop) */}
           <div className="hidden md:flex items-center gap-4">
+            {user && <NotificationBell />}
             {user && profile ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

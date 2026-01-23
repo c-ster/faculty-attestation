@@ -37,6 +37,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import { toast } from "sonner";
 import type { Database } from "@/integrations/supabase/types";
+import { advanceWorkflow } from "@/services/workflowService";
+import {
+  notifyReviewCompleted,
+  notifyRevisionRequested,
+  notifyReviewAssigned
+} from "@/services/notificationService";
 
 type WorkflowStep = Database["public"]["Enums"]["workflow_step"];
 type ReviewDecision = Database["public"]["Enums"]["review_decision"];
@@ -210,18 +216,75 @@ const SubmissionReview = () => {
 
       if (reviewError) throw reviewError;
 
-      // Call the advance_workflow function
-      const { error: workflowError } = await supabase.rpc("advance_workflow", {
-        _submission_id: submission.id,
-        _decision: decision,
-        _notes: reviewNotes || null,
-      });
+      // Advance workflow using our service (handles next step assignment)
+      const workflowResult = await advanceWorkflow(
+        submission.id,
+        decision as "approved" | "rejected" | "returned_for_revision"
+      );
 
-      if (workflowError) throw workflowError;
+      if (!workflowResult.success) {
+        throw new Error(workflowResult.error || "Failed to advance workflow");
+      }
+
+      // Send notifications based on decision
+      const isFinal = submission.current_step === "vice_provost_review";
+
+      if (decision === "approved") {
+        // Notify submitter of approval
+        await notifyReviewCompleted(
+          submission.user_id,
+          submission.id,
+          submission.submission_id,
+          submission.title,
+          "approved",
+          isFinal
+        );
+
+        // If not final and moving to next reviewer, notify them
+        if (!isFinal) {
+          // Re-fetch submission to get new assigned reviewer
+          const { data: updatedSubmission } = await supabase
+            .from("submissions")
+            .select("assigned_to")
+            .eq("id", submission.id)
+            .single();
+
+          if (updatedSubmission?.assigned_to) {
+            await notifyReviewAssigned(
+              updatedSubmission.assigned_to,
+              submission.id,
+              submission.submission_id,
+              submission.title,
+              submitterProfile?.full_name || "Faculty Member"
+            );
+          }
+        }
+      } else if (decision === "rejected") {
+        // Notify submitter of rejection
+        await notifyReviewCompleted(
+          submission.user_id,
+          submission.id,
+          submission.submission_id,
+          submission.title,
+          "rejected",
+          true
+        );
+      } else if (decision === "returned_for_revision") {
+        // Notify submitter of revision request
+        await notifyRevisionRequested(
+          submission.user_id,
+          submission.id,
+          submission.submission_id,
+          submission.title,
+          revisionInstructions
+        );
+      }
 
       toast.success(
         decision === "approved"
-          ? "Submission approved successfully"
+          ? isFinal
+            ? "Submission approved for public release"
+            : "Submission approved and advanced to next review"
           : decision === "rejected"
             ? "Submission rejected"
             : "Submission returned for revision"

@@ -13,6 +13,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { initiateWorkflow } from "@/services/workflowService";
+import { notifySubmissionReceived, notifyReviewAssigned } from "@/services/notificationService";
 
 const departments = [
   "Computer Science",
@@ -207,6 +209,29 @@ const Submit = () => {
           certification: formData.certification,
         }),
       });
+
+      // Phase 2: Initiate workflow and send notifications
+      // Notify submitter that submission was received
+      await notifySubmissionReceived(
+        user.id,
+        submission.id,
+        submission.submission_id,
+        formData.title
+      );
+
+      // Initiate workflow - auto-assign to appropriate reviewer
+      const workflowResult = await initiateWorkflow(submission.id);
+
+      if (workflowResult.success && workflowResult.reviewerId) {
+        // Notify the assigned reviewer
+        await notifyReviewAssigned(
+          workflowResult.reviewerId,
+          submission.id,
+          submission.submission_id,
+          formData.title,
+          profile?.full_name || "Faculty Member"
+        );
+      }
 
       toast({
         title: "Submission Successful!",
