@@ -14,6 +14,222 @@ export type Database = {
   }
   public: {
     Tables: {
+      // Phase 2: Notifications table
+      notifications: {
+        Row: {
+          id: string
+          user_id: string
+          submission_id: string | null
+          type: Database["public"]["Enums"]["notification_type"]
+          title: string
+          message: string
+          status: Database["public"]["Enums"]["notification_status"]
+          sent_at: string | null
+          error_message: string | null
+          email_to: string | null
+          is_read: boolean
+          read_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          submission_id?: string | null
+          type: Database["public"]["Enums"]["notification_type"]
+          title: string
+          message: string
+          status?: Database["public"]["Enums"]["notification_status"]
+          sent_at?: string | null
+          error_message?: string | null
+          email_to?: string | null
+          is_read?: boolean
+          read_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          submission_id?: string | null
+          type?: Database["public"]["Enums"]["notification_type"]
+          title?: string
+          message?: string
+          status?: Database["public"]["Enums"]["notification_status"]
+          sent_at?: string | null
+          error_message?: string | null
+          email_to?: string | null
+          is_read?: boolean
+          read_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // Phase 2: Reviews table
+      reviews: {
+        Row: {
+          id: string
+          submission_id: string
+          reviewer_id: string
+          workflow_step: Database["public"]["Enums"]["workflow_step"]
+          decision: Database["public"]["Enums"]["review_decision"]
+          reviewed_at: string | null
+          review_notes: string | null
+          revision_instructions: string | null
+          assigned_at: string
+          due_date: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          submission_id: string
+          reviewer_id: string
+          workflow_step: Database["public"]["Enums"]["workflow_step"]
+          decision?: Database["public"]["Enums"]["review_decision"]
+          reviewed_at?: string | null
+          review_notes?: string | null
+          revision_instructions?: string | null
+          assigned_at?: string
+          due_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          submission_id?: string
+          reviewer_id?: string
+          workflow_step?: Database["public"]["Enums"]["workflow_step"]
+          decision?: Database["public"]["Enums"]["review_decision"]
+          reviewed_at?: string | null
+          review_notes?: string | null
+          revision_instructions?: string | null
+          assigned_at?: string
+          due_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviews_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // Phase 2: Review Comments table
+      review_comments: {
+        Row: {
+          id: string
+          submission_id: string
+          review_id: string | null
+          user_id: string
+          comment: string
+          is_internal: boolean
+          parent_comment_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          submission_id: string
+          review_id?: string | null
+          user_id: string
+          comment: string
+          is_internal?: boolean
+          parent_comment_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          submission_id?: string
+          review_id?: string | null
+          user_id?: string
+          comment?: string
+          is_internal?: boolean
+          parent_comment_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_comments_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_comments_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "reviews"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_comments_parent_comment_id_fkey"
+            columns: ["parent_comment_id"]
+            isOneToOne: false
+            referencedRelation: "review_comments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // Phase 2: Routing Rules table
+      routing_rules: {
+        Row: {
+          id: string
+          department: string | null
+          school: string | null
+          has_risk_flags: boolean | null
+          risk_flag_types: string[] | null
+          assign_to_role: Database["public"]["Enums"]["app_role"]
+          assign_to_user_id: string | null
+          priority: number
+          is_active: boolean
+          description: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          department?: string | null
+          school?: string | null
+          has_risk_flags?: boolean | null
+          risk_flag_types?: string[] | null
+          assign_to_role: Database["public"]["Enums"]["app_role"]
+          assign_to_user_id?: string | null
+          priority?: number
+          is_active?: boolean
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          department?: string | null
+          school?: string | null
+          has_risk_flags?: boolean | null
+          risk_flag_types?: string[] | null
+          assign_to_role?: Database["public"]["Enums"]["app_role"]
+          assign_to_user_id?: string | null
+          priority?: number
+          is_active?: boolean
+          description?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       attestation_logs: {
         Row: {
           action: string
@@ -184,6 +400,13 @@ export type Database = {
           title: string
           updated_at: string
           user_id: string
+          // Phase 2 workflow fields
+          current_step: Database["public"]["Enums"]["workflow_step"]
+          assigned_to: string | null
+          workflow_started_at: string | null
+          workflow_completed_at: string | null
+          is_expedited: boolean
+          review_due_date: string | null
         }
         Insert: {
           abstract?: string | null
@@ -203,6 +426,13 @@ export type Database = {
           title: string
           updated_at?: string
           user_id: string
+          // Phase 2 workflow fields
+          current_step?: Database["public"]["Enums"]["workflow_step"]
+          assigned_to?: string | null
+          workflow_started_at?: string | null
+          workflow_completed_at?: string | null
+          is_expedited?: boolean
+          review_due_date?: string | null
         }
         Update: {
           abstract?: string | null
@@ -222,6 +452,13 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id?: string
+          // Phase 2 workflow fields
+          current_step?: Database["public"]["Enums"]["workflow_step"]
+          assigned_to?: string | null
+          workflow_started_at?: string | null
+          workflow_completed_at?: string | null
+          is_expedited?: boolean
+          review_due_date?: string | null
         }
         Relationships: []
       }
@@ -262,6 +499,23 @@ export type Database = {
         }
         Returns: boolean
       }
+      // Phase 2 functions
+      get_next_workflow_step: {
+        Args: { current: Database["public"]["Enums"]["workflow_step"] }
+        Returns: Database["public"]["Enums"]["workflow_step"]
+      }
+      advance_workflow: {
+        Args: {
+          _submission_id: string
+          _decision: Database["public"]["Enums"]["review_decision"]
+          _notes?: string
+        }
+        Returns: Database["public"]["Tables"]["submissions"]["Row"]
+      }
+      auto_assign_reviewer: {
+        Args: { _submission_id: string }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "faculty" | "chair" | "lab_director" | "vice_provost" | "admin"
@@ -270,6 +524,28 @@ export type Database = {
         | "under_review"
         | "released"
         | "not_released"
+      // Phase 2 enums
+      workflow_step:
+        | "submitted"
+        | "chair_review"
+        | "vice_provost_review"
+        | "completed"
+      review_decision:
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "returned_for_revision"
+      notification_type:
+        | "submission_received"
+        | "review_assigned"
+        | "review_completed"
+        | "revision_requested"
+        | "final_decision"
+        | "reminder"
+      notification_status:
+        | "pending"
+        | "sent"
+        | "failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -403,6 +679,32 @@ export const Constants = {
         "under_review",
         "released",
         "not_released",
+      ],
+      // Phase 2 enums
+      workflow_step: [
+        "submitted",
+        "chair_review",
+        "vice_provost_review",
+        "completed",
+      ],
+      review_decision: [
+        "pending",
+        "approved",
+        "rejected",
+        "returned_for_revision",
+      ],
+      notification_type: [
+        "submission_received",
+        "review_assigned",
+        "review_completed",
+        "revision_requested",
+        "final_decision",
+        "reminder",
+      ],
+      notification_status: [
+        "pending",
+        "sent",
+        "failed",
       ],
     },
   },
