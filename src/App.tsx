@@ -11,6 +11,8 @@ import Signup from "./pages/Signup";
 import Submit from "./pages/Submit";
 import Submissions from "./pages/Submissions";
 import Dashboard from "./pages/Dashboard";
+import ReviewQueue from "./pages/ReviewQueue";
+import SubmissionReview from "./pages/SubmissionReview";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -47,6 +49,22 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/review"
+              element={
+                <ProtectedRoute>
+                  <ReviewQueue />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/review/:submissionId"
+              element={
+                <ProtectedRoute>
+                  <SubmissionReview />
                 </ProtectedRoute>
               }
             />
